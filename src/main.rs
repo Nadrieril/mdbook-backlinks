@@ -63,79 +63,71 @@ impl<'a> MarkdownBuilder<'a> {
     }
 }
 
-pub struct Backlinks;
+fn process_book(mut book: Book) -> Result<Book, Error> {
+    // Map each chapters source_path to its backlinks.
+    let mut backlinks_map: HashMap<PathBuf, Vec<_>> = HashMap::new();
 
-impl Preprocessor for Backlinks {
-    fn name(&self) -> &str {
-        "backlinks"
+    // Add entries for the book chapters (so that we don't accumulate links that point outside
+    // the book).
+    for item in book.iter() {
+        if let BookItem::Chapter(ch) = item
+            && let Some(path) = &ch.source_path
+        {
+            backlinks_map.insert(path.clone(), Vec::new());
+        }
     }
 
-    fn run(&self, _ctx: &PreprocessorContext, mut book: Book) -> Result<Book, Error> {
-        // Map each chapters source_path to its backlinks.
-        let mut backlinks_map: HashMap<PathBuf, Vec<_>> = HashMap::new();
-
-        // Add entries for the book chapters (so that we don't accumulate links that point outside
-        // the book).
-        for item in book.iter() {
-            if let BookItem::Chapter(ch) = item
-                && let Some(path) = &ch.source_path
-            {
-                backlinks_map.insert(path.clone(), Vec::new());
-            }
-        }
-
-        // Populate the map.
-        for item in book.iter() {
-            if let BookItem::Chapter(ch) = item
-                && let Some(path) = &ch.source_path
-            {
-                // Loop over the internal links found in the chapter
-                for event in mdbook_markdown::new_cmark_parser(&ch.content, &Default::default()) {
-                    if let Event::Start(Tag::Link { dest_url, .. }) = event {
-                        let dest_chapter = PathBuf::from(&*dest_url);
-                        if let Some(backlinks) = backlinks_map.get_mut(&dest_chapter) {
-                            let name = ch.name.clone();
-                            let path = path.clone();
-                            backlinks.push((name, path));
-                        }
+    // Populate the map.
+    for item in book.iter() {
+        if let BookItem::Chapter(ch) = item
+            && let Some(path) = &ch.source_path
+        {
+            // Loop over the internal links found in the chapter
+            for event in mdbook_markdown::new_cmark_parser(&ch.content, &Default::default()) {
+                if let Event::Start(Tag::Link { dest_url, .. }) = event {
+                    let dest_chapter = PathBuf::from(&*dest_url);
+                    if let Some(backlinks) = backlinks_map.get_mut(&dest_chapter) {
+                        let name = ch.name.clone();
+                        let path = path.clone();
+                        backlinks.push((name, path));
                     }
                 }
             }
         }
-
-        // Add backlinks to each chapter.
-        book.for_each_mut(|item| {
-            if let BookItem::Chapter(ch) = item
-                && let Some(source_path) = &ch.source_path
-                && let Some(backlinks) = backlinks_map.get(source_path)
-                && backlinks.len() >= 1
-            {
-                ch.content += "\n\n";
-                let mut builder = MarkdownBuilder::default();
-                builder.event(Event::Rule);
-                builder.tag(Tag::BlockQuote(None), |builder| {
-                    builder.simple_heading(HeadingLevel::H4, |builder| {
-                        builder.text("Backlinks");
-                    });
-                    builder.tag(Tag::List(None), |builder| {
-                        for (name, path) in backlinks.iter().sorted().dedup() {
-                            let diff_path =
-                                pathdiff::diff_paths(path, source_path.parent().unwrap()).unwrap();
-                            let dest_url = diff_path.to_str().unwrap().to_owned();
-                            builder.tag(Tag::Item, |builder| {
-                                builder.simple_link(dest_url, |builder| {
-                                    builder.text(name.as_str());
-                                });
-                            });
-                        }
-                    });
-                });
-                builder.write_to_string(&mut ch.content);
-            }
-        });
-
-        Ok(book)
     }
+
+    // Add backlinks to each chapter.
+    for item in &mut book.sections {
+        if let BookItem::Chapter(ch) = item
+            && let Some(source_path) = &ch.source_path
+            && let Some(backlinks) = backlinks_map.get(source_path)
+            && backlinks.len() >= 1
+        {
+            ch.content += "\\n\\n";
+            let mut builder = MarkdownBuilder::default();
+            builder.event(Event::Rule);
+            builder.tag(Tag::BlockQuote(None), |builder| {
+                builder.simple_heading(HeadingLevel::H4, |builder| {
+                    builder.text("Backlinks");
+                });
+                builder.tag(Tag::List(None), |builder| {
+                    for (name, path) in backlinks.iter().sorted().dedup() {
+                        let diff_path =
+                            pathdiff::diff_paths(path, source_path.parent().unwrap()).unwrap();
+                        let dest_url = diff_path.to_str().unwrap().to_owned();
+                        builder.tag(Tag::Item, |builder| {
+                            builder.simple_link(dest_url, |builder| {
+                                builder.text(name.as_str());
+                            });
+                        });
+                    }
+                });
+            });
+            builder.write_to_string(&mut ch.content);
+        }
+    }
+
+    Ok(book)
 }
 
 pub fn make_app() -> App<'static, 'static> {
@@ -146,6 +138,17 @@ pub fn make_app() -> App<'static, 'static> {
                 .arg(Arg::with_name("renderer").required(true))
                 .about("Check whether a renderer is supported by this preprocessor"),
         )
+}
+
+pub struct Backlinks;
+impl Preprocessor for Backlinks {
+    fn name(&self) -> &str {
+        "backlinks"
+    }
+
+    fn run(&self, _ctx: &PreprocessorContext, book: Book) -> Result<Book, Error> {
+        process_book(book)
+    }
 }
 
 fn main() -> Result<(), Error> {
