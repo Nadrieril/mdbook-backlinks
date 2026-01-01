@@ -13,9 +13,11 @@ include = [
 
 [dependencies]
 clap = "2.33.3"
+indoc = "2.0.7"
 itertools = "0.14.0"
 mdbook = "0.4.12"
 mdbook-markdown = "0.5.2"
+path_normalizer = "0.1.1"
 pathdiff = "0.2.0"
 pulldown-cmark-to-cmark = "22.0.0"
 semver = "1.0.3"

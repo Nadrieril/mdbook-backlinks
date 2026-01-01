@@ -4,13 +4,14 @@ use std::path::PathBuf;
 
 use clap::{App, Arg, SubCommand};
 use itertools::Itertools;
-use mdbook_markdown::pulldown_cmark::{CowStr, Event, HeadingLevel, LinkType, Tag};
+use path_normalizer::PathNormalizeExt;
 use pathdiff;
 use semver::{Version, VersionReq};
 
 use mdbook::book::{Book, BookItem};
 use mdbook::errors::Error;
 use mdbook::preprocess::{CmdPreprocessor, Preprocessor, PreprocessorContext};
+use mdbook_markdown::pulldown_cmark::{CowStr, Event, HeadingLevel, LinkType, Tag};
 
 /// Helper to build a pulldown_cmark document.
 #[derive(Default)]
@@ -85,7 +86,11 @@ fn process_book(mut book: Book) -> Result<Book, Error> {
             // Loop over the internal links found in the chapter
             for event in mdbook_markdown::new_cmark_parser(&ch.content, &Default::default()) {
                 if let Event::Start(Tag::Link { dest_url, .. }) = event {
-                    let dest_chapter = PathBuf::from(&*dest_url);
+                    let dest_chapter = path
+                        .parent()
+                        .unwrap()
+                        .join(PathBuf::from(&*dest_url))
+                        .normalize_path()?;
                     if let Some(backlinks) = backlinks_map.get_mut(&dest_chapter) {
                         let name = ch.name.clone();
                         let path = path.clone();
@@ -181,4 +186,55 @@ fn handle_preprocessing(pre: &dyn Preprocessor) -> Result<(), Error> {
     serde_json::to_writer(io::stdout(), &processed_book)?;
 
     Ok(())
+}
+
+#[test]
+fn test() {
+    use mdbook::book::Chapter;
+    let mut book = Book::new();
+    book.push_item(BookItem::Chapter(Chapter::new(
+        "index",
+        "[link](b/ch3.md)".into(),
+        "index.md",
+        vec![],
+    )));
+    book.push_item(BookItem::Chapter(Chapter::new(
+        "ch1",
+        "[link](../b/ch3.md)".into(),
+        "a/ch1.md",
+        vec![],
+    )));
+    book.push_item(BookItem::Chapter(Chapter::new(
+        "ch2",
+        "[link](ch3.md)".into(),
+        "b/ch2.md",
+        vec![],
+    )));
+    book.push_item(BookItem::Chapter(Chapter::new(
+        "ch3",
+        "".into(),
+        "b/ch3.md",
+        vec![],
+    )));
+    let book = process_book(book).unwrap();
+
+    let BookItem::Chapter(ch3) = &book.sections[3] else {
+        panic!()
+    };
+    assert_eq!(
+        ch3.content,
+        indoc::indoc!(
+            "
+
+
+            ---
+
+             > 
+             > #### Backlinks
+             > 
+             > * [ch1](../a/ch1.md)
+             > * [ch2](ch2.md)
+             > * [index](../index.md)"
+        )
+    );
 }
