@@ -1,0 +1,23 @@
+[package]
+name = "mdbook-backlinks"
+authors = [ "Nadrieril <nadrieril+git@gmail.com>" ]
+description = "A preprocessor for mdbook that automatically adds backlinks to each chapter."
+version = "0.3.0"
+edition = "2024"
+license = "MIT"
+readme = "README.md"
+include = [
+    "**/*.rs",
+    "Cargo.toml",
+]
+
+[dependencies]
+clap = "2.33.3"
+itertools = "0.14.0"
+mdbook = "0.4.12"
+mdbook-markdown = "0.5.2"
+pathdiff = "0.2.0"
+pulldown-cmark-to-cmark = "22.0.0"
+semver = "1.0.3"
+serde_json = "1.0.64"
+toml = "0.5.8"
