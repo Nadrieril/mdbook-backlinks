@@ -92,9 +92,11 @@ fn process_book(mut book: Book) -> Result<Book, Error> {
                         .join(PathBuf::from(&*dest_url))
                         .normalize_path()?;
                     if let Some(backlinks) = backlinks_map.get_mut(&dest_chapter) {
-                        let name = ch.name.clone();
-                        let path = path.clone();
-                        backlinks.push((name, path));
+                        backlinks.push((
+                            ch.number.clone().map(|n| n.0),
+                            ch.name.clone(),
+                            path.clone(),
+                        ));
                     }
                 }
             }
@@ -116,7 +118,7 @@ fn process_book(mut book: Book) -> Result<Book, Error> {
                     builder.text("Backlinks");
                 });
                 builder.tag(Tag::List(None), |builder| {
-                    for (name, path) in backlinks.iter().sorted().dedup() {
+                    for (_, name, path) in backlinks.iter().sorted().dedup() {
                         let diff_path =
                             pathdiff::diff_paths(path, source_path.parent().unwrap()).unwrap();
                         let dest_url = diff_path.to_str().unwrap().to_owned();
@@ -190,39 +192,52 @@ fn handle_preprocessing(pre: &dyn Preprocessor) -> Result<(), Error> {
 
 #[test]
 fn test() {
-    use mdbook::book::Chapter;
+    use mdbook::book::{Chapter, SectionNumber};
     let mut book = Book::new();
-    book.push_item(BookItem::Chapter(Chapter::new(
+
+    let mk_chap = |name, path: &str, contents, number| {
+        let mut ch = Chapter::new(name, contents, path, vec![]);
+        ch.number = Some(SectionNumber(number));
+        ch
+    };
+
+    book.push_item(BookItem::Chapter(mk_chap(
         "index",
-        "[link](b/ch3.md)".into(),
         "index.md",
-        vec![],
+        "[link](b/last_chapter.md)".into(),
+        vec![0],
     )));
-    book.push_item(BookItem::Chapter(Chapter::new(
+    book.push_item(BookItem::Chapter(mk_chap(
         "ch1",
-        "[link](../b/ch3.md)".into(),
         "a/ch1.md",
-        vec![],
+        "[link](../b/last_chapter.md)".into(),
+        vec![1, 1],
     )));
-    book.push_item(BookItem::Chapter(Chapter::new(
+    book.push_item(BookItem::Chapter(mk_chap(
         "ch2",
-        "[link](ch3.md)".into(),
         "b/ch2.md",
-        vec![],
+        "[link](last_chapter.md)".into(),
+        vec![2, 2], // twist
     )));
-    book.push_item(BookItem::Chapter(Chapter::new(
+    book.push_item(BookItem::Chapter(mk_chap(
         "ch3",
-        "".into(),
         "b/ch3.md",
-        vec![],
+        "[link](last_chapter.md)".into(),
+        vec![2, 1],
+    )));
+    book.push_item(BookItem::Chapter(mk_chap(
+        "last_chapter",
+        "b/last_chapter.md",
+        "".into(),
+        vec![2, 3],
     )));
     let book = process_book(book).unwrap();
 
-    let BookItem::Chapter(ch3) = &book.sections[3] else {
+    let BookItem::Chapter(last_chapter) = &book.sections.last().unwrap() else {
         panic!()
     };
     assert_eq!(
-        ch3.content,
+        last_chapter.content,
         indoc::indoc!(
             "
 
@@ -232,9 +247,10 @@ fn test() {
              > 
              > #### Backlinks
              > 
+             > * [index](../index.md)
              > * [ch1](../a/ch1.md)
-             > * [ch2](ch2.md)
-             > * [index](../index.md)"
+             > * [ch3](ch3.md)
+             > * [ch2](ch2.md)"
         )
     );
 }
