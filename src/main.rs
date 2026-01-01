@@ -104,7 +104,7 @@ fn process_book(mut book: Book) -> Result<Book, Error> {
     }
 
     // Add backlinks to each chapter.
-    for item in &mut book.sections {
+    book.for_each_mut(|item| {
         if let BookItem::Chapter(ch) = item
             && let Some(source_path) = &ch.source_path
             && let Some(backlinks) = backlinks_map.get(source_path)
@@ -132,7 +132,7 @@ fn process_book(mut book: Book) -> Result<Book, Error> {
             });
             builder.write_to_string(&mut ch.content);
         }
-    }
+    });
 
     Ok(book)
 }
