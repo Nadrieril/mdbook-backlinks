@@ -103,7 +103,7 @@ fn process_book(mut book: Book) -> Result<Book, Error> {
             && let Some(backlinks) = backlinks_map.get(source_path)
             && backlinks.len() >= 1
         {
-            ch.content += "\\n\\n";
+            ch.content += "\n\n"; // Avoid the ruler being parsed as a heading underline
             let mut builder = MarkdownBuilder::default();
             builder.event(Event::Rule);
             builder.tag(Tag::BlockQuote(None), |builder| {
