@@ -8,10 +8,10 @@ use path_normalizer::PathNormalizeExt;
 use pathdiff;
 use semver::{Version, VersionReq};
 
-use mdbook::book::{Book, BookItem};
-use mdbook::errors::Error;
-use mdbook::preprocess::{CmdPreprocessor, Preprocessor, PreprocessorContext};
 use mdbook_markdown::pulldown_cmark::{CowStr, Event, HeadingLevel, LinkType, Tag};
+use mdbook_preprocessor::book::{Book, BookItem};
+use mdbook_preprocessor::errors::Error;
+use mdbook_preprocessor::{Preprocessor, PreprocessorContext};
 
 /// Helper to build a pulldown_cmark document.
 #[derive(Default)]
@@ -93,7 +93,7 @@ fn process_book(mut book: Book) -> Result<Book, Error> {
                         .normalize_path()?;
                     if let Some(backlinks) = backlinks_map.get_mut(&dest_chapter) {
                         backlinks.push((
-                            ch.number.clone().map(|n| n.0),
+                            ch.number.clone().map(|n| Vec::clone(&n)),
                             ch.name.clone(),
                             path.clone(),
                         ));
@@ -169,17 +169,17 @@ fn main() -> Result<(), Error> {
 }
 
 fn handle_preprocessing(pre: &dyn Preprocessor) -> Result<(), Error> {
-    let (ctx, book) = CmdPreprocessor::parse_input(io::stdin())?;
+    let (ctx, book) = mdbook_preprocessor::parse_input(io::stdin())?;
 
     let book_version = Version::parse(&ctx.mdbook_version)?;
-    let version_req = VersionReq::parse(mdbook::MDBOOK_VERSION)?;
+    let version_req = VersionReq::parse(mdbook_preprocessor::MDBOOK_VERSION)?;
 
     if version_req.matches(&book_version) != true {
         eprintln!(
             "Warning: The {} plugin was built against version {} of mdbook, \
              but we're being called from version {}",
             pre.name(),
-            mdbook::MDBOOK_VERSION,
+            mdbook_preprocessor::MDBOOK_VERSION,
             ctx.mdbook_version
         );
     }
@@ -192,12 +192,12 @@ fn handle_preprocessing(pre: &dyn Preprocessor) -> Result<(), Error> {
 
 #[test]
 fn test() {
-    use mdbook::book::{Chapter, SectionNumber};
+    use mdbook_preprocessor::book::{Chapter, SectionNumber};
     let mut book = Book::new();
 
     let mk_chap = |name, path: &str, contents, number| {
         let mut ch = Chapter::new(name, contents, path, vec![]);
-        ch.number = Some(SectionNumber(number));
+        ch.number = Some(SectionNumber::new(number));
         ch
     };
 
@@ -233,7 +233,7 @@ fn test() {
     )));
     let book = process_book(book).unwrap();
 
-    let BookItem::Chapter(last_chapter) = &book.sections.last().unwrap() else {
+    let BookItem::Chapter(last_chapter) = &book.items.last().unwrap() else {
         panic!()
     };
     assert_eq!(
