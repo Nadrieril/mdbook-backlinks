@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::{App, Arg, SubCommand};
 use itertools::Itertools;
-use path_normalizer::PathNormalizeExt;
+use path_normalizer::NormalizeError;
 use pathdiff;
 use semver::{Version, VersionReq};
 
@@ -64,9 +64,44 @@ impl<'a> MarkdownBuilder<'a> {
     }
 }
 
+/// Helper struct to make sure we normalize paths before comparing them.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+struct NormalizedPathBuf(PathBuf);
+
+impl std::ops::Deref for NormalizedPathBuf {
+    type Target = Path;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl AsRef<Path> for NormalizedPathBuf {
+    fn as_ref(&self) -> &Path {
+        self.0.as_ref()
+    }
+}
+
+/// Extension trait to add lexical normalization to paths.
+trait PathNormalizeExt {
+    /// Normalize a path lexically, resolving `.` and `..` without accessing the filesystem.
+    fn normalize_path(&self) -> Result<NormalizedPathBuf, NormalizeError>;
+}
+impl PathNormalizeExt for Path {
+    fn normalize_path(&self) -> Result<NormalizedPathBuf, NormalizeError> {
+        let path = if self.is_relative() {
+            // Without the leading `.`, the normalizer isn't actually normalizing for relative paths.
+            &PathBuf::from(".").join(self)
+        } else {
+            self
+        };
+        Ok(NormalizedPathBuf(
+            path_normalizer::PathNormalizeExt::normalize_path(path)?,
+        ))
+    }
+}
+
 fn process_book(mut book: Book) -> Result<Book, Error> {
     // Map each chapters source_path to its backlinks.
-    let mut backlinks_map: HashMap<PathBuf, Vec<_>> = HashMap::new();
+    let mut backlinks_map: HashMap<NormalizedPathBuf, Vec<_>> = HashMap::new();
 
     // Add entries for the book chapters (so that we don't accumulate links that point outside
     // the book).
@@ -74,7 +109,7 @@ fn process_book(mut book: Book) -> Result<Book, Error> {
         if let BookItem::Chapter(ch) = item
             && let Some(path) = &ch.source_path
         {
-            backlinks_map.insert(path.clone(), Vec::new());
+            backlinks_map.insert(path.normalize_path()?, Vec::new());
         }
     }
 
@@ -83,6 +118,7 @@ fn process_book(mut book: Book) -> Result<Book, Error> {
         if let BookItem::Chapter(ch) = item
             && let Some(path) = &ch.source_path
         {
+            let path = path.normalize_path()?;
             // Loop over the internal links found in the chapter
             for event in mdbook_markdown::new_cmark_parser(&ch.content, &Default::default()) {
                 if let Event::Start(Tag::Link { dest_url, .. }) = event {
@@ -107,7 +143,8 @@ fn process_book(mut book: Book) -> Result<Book, Error> {
     book.for_each_mut(|item| {
         if let BookItem::Chapter(ch) = item
             && let Some(source_path) = &ch.source_path
-            && let Some(backlinks) = backlinks_map.get(source_path)
+            && let source_path = source_path.normalize_path().unwrap()
+            && let Some(backlinks) = backlinks_map.get(&source_path)
             && backlinks.len() >= 1
         {
             ch.content += "\n\n"; // Avoid the ruler being parsed as a heading underline
